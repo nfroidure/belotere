@@ -3,7 +3,7 @@ import Card from './card';
 import type { CardItem } from './card';
 
 const HORIZONTAL_POSITIONS = ['top', 'bottom'];
-const ALL_POSITIONS = [...HORIZONTAL_POSITIONS, 'left', 'right'];
+export const ALL_POSITIONS = [...HORIZONTAL_POSITIONS, 'left', 'right'];
 
 const Hand = ({
   cards,

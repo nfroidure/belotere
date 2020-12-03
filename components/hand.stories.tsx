@@ -1,7 +1,8 @@
 import React from 'react';
-import { CARDS } from './card';
+import { ALL_SIZES, CARDS } from './card';
 import Hand, { ALL_POSITIONS } from './hand';
 import { withKnobs, select, boolean } from '@storybook/addon-knobs';
+import { PLAY_ORDER } from './trick';
 
 export default {
   title: 'Game/Hand',
@@ -15,6 +16,9 @@ export const baseCard = (): JSX.Element => {
       cards={CARDS.slice(0, cardsLength)}
       position={select('Position', ALL_POSITIONS, ALL_POSITIONS[0])}
       hidden={boolean('Hidden', false)}
+      size={select('Size', ALL_SIZES, ALL_SIZES[0])}
+      playing={boolean('Playing', false)}
+      onCardSelect={() => undefined}
     />
   );
 };

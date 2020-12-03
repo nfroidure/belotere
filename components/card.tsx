@@ -1,4 +1,5 @@
 import React, { ButtonHTMLAttributes } from 'react';
+import cardStories from './card.stories';
 
 export const CARD_SUITS = ['♠', '♥', '♣', '♦'] as const;
 export type CardSuit = typeof CARD_SUITS[number];
@@ -154,7 +155,7 @@ export const CARDS_INDEX = CARDS.reduce((hash, card) => {
   return hash;
 }, {});
 
-const ALL_SIZES = ['small', 'medium'] as const;
+export const ALL_SIZES = ['small', 'medium'] as const;
 
 // Requires all card images
 // https://webpack.js.org/guides/dependency-management/#context-module-api
@@ -184,7 +185,9 @@ const Card = ({
   return (
     <div className={`root${hidden ? ' hidden' : ''}`}>
       <button onClick={onClick}>
-        <span style={{ display: 'none' }}>{hidden ? 'hidden card' : name}</span>
+        <span style={{ display: 'none' }}>
+          {hidden ? 'hidden card' : face + suit}
+        </span>
       </button>
       <style jsx>{`
         .root {
