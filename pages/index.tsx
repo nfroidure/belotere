@@ -70,7 +70,9 @@ type RunningGame = {
 
 type Score = {
   type: 'score';
-  scores: Record<Hand, number>;
+  scores: Record<Hand | 'playerTeam' | 'opponentsTeam', number> & {
+    beloteHand: Hand;
+  };
 } & Omit<RunningGame, 'type' | 'trick'>;
 
 type GameState = InitGame | Deal1 | Bid1 | Bid2 | Deal2 | RunningGame | Score;
@@ -109,21 +111,26 @@ export default function Home(): JSX.Element {
         {game.type === 'deal1' ||
         game.type === 'deal2' ||
         game.type === 'bid1' ||
-        game.type === 'bid2' ? (
+        game.type === 'bid2' ||
+        game.type === 'score' ? (
           <p key="dealer" className="metric">
             Donneur
             <br />
             <span>{game.playersName[game.dealer]}</span>
           </p>
         ) : null}
-        {game.type === 'running' || game.type === 'deal2' ? (
+        {game.type === 'running' ||
+        game.type === 'deal2' ||
+        game.type === 'score' ? (
           <p key="trump" className="metric">
             Atout
             <br />
             <span className="suit">{game.trump}</span>
           </p>
         ) : null}
-        {game.type === 'running' || game.type === 'deal2' ? (
+        {game.type === 'running' ||
+        game.type === 'deal2' ||
+        game.type === 'score' ? (
           <p key="taker" className="metric">
             Preneur
             <br />
@@ -219,7 +226,6 @@ export default function Home(): JSX.Element {
             }
             onCardSelect={(card) => {
               // TODO: Debounce this event
-
               setGame(
                 (game): GameState => {
                   if (
@@ -228,6 +234,17 @@ export default function Home(): JSX.Element {
                     getRelativeHand(game.leader, game.trick.length) ===
                       'playerHand'
                   ) {
+                    const errorMessage = cardPlayErrorMessage(
+                      game,
+                      'playerHand',
+                      card,
+                    );
+
+                    if (errorMessage) {
+                      setMessage(errorMessage);
+                      return game;
+                    }
+
                     waitNextStep(BOT_DELAY);
                     return {
                       ...game,
@@ -353,26 +370,29 @@ export default function Home(): JSX.Element {
         {game.type === 'score' ? (
           <div className="popup active">
             <h2>Score</h2>
-            <h3>
-              Votre équipe - {game.scores.playerHand + game.scores.partnerHand}{' '}
-              points
-            </h3>
+            <h3>Votre équipe - {game.scores.playerTeam} points</h3>
             <p>
-              {game.playersName.playerHand} : {game.scores.playerHand} points
+              {game.playersName.playerHand} : {game.scores.playerHand}
+              {game.scores.beloteHand === 'playerHand' ? ' + 20' : ''} points
               <br />
-              {game.playersName.partnerHand} : {game.scores.partnerHand} points
+              {game.playersName.partnerHand} : {game.scores.partnerHand}
+              {game.scores.beloteHand === 'partnerHand' ? ' + 20' : ''} points
             </p>
-            <h3>
-              Adversaires -{' '}
-              {game.scores.leftOpponentHand + game.scores.rightOpponentHand}{' '}
-              points
-            </h3>
+            <h3>Adversaires - {game.scores.opponentsTeam} points</h3>
             <p>
               {game.playersName.leftOpponentHand} :{' '}
               {game.scores.leftOpponentHand}
+              {game.scores.beloteHand === 'leftOpponentHand'
+                ? ' + 20'
+                : ''}{' '}
+              points
               <br />
               {game.playersName.rightOpponentHand} :{' '}
               {game.scores.rightOpponentHand}
+              {game.scores.beloteHand === 'rightOpponentHand'
+                ? ' + 20'
+                : ''}{' '}
+              points
             </p>
             <p>
               <button
@@ -856,16 +876,75 @@ export default function Home(): JSX.Element {
     }
     if (game.type === 'running') {
       if (game.endedTricks.length === NUM_TRICKS) {
-        return {
+        const newGame = {
           ...game,
-          type: 'score',
+          type: 'score' as const,
           scores: {
             playerHand: computeHandScore(game, 'playerHand'),
             partnerHand: computeHandScore(game, 'partnerHand'),
             leftOpponentHand: computeHandScore(game, 'leftOpponentHand'),
             rightOpponentHand: computeHandScore(game, 'rightOpponentHand'),
+            playerTeam: 0,
+            opponentsTeam: 0,
+            beloteHand: PLAY_ORDER.find((hand) =>
+              game.endedTricks.every((trick) =>
+                trick.cards
+                  .filter(
+                    (trickCard) =>
+                      trickCard.suit === game.trump &&
+                      ['K', 'Q'].includes(trickCard.face),
+                  )
+                  .every(
+                    (trickCard) =>
+                      getRelativeHand(
+                        trick.leader,
+                        trick.cards.indexOf(trickCard),
+                      ) === hand,
+                  ),
+              ),
+            ),
           },
         };
+
+        if (newGame.scores.playerHand + newGame.scores.partnerHand === 162) {
+          newGame.scores.playerTeam = 252;
+          newGame.scores.opponentsTeam = 0;
+        } else if (
+          newGame.scores.leftOpponentHand + newGame.scores.rightOpponentHand ===
+          162
+        ) {
+          newGame.scores.opponentsTeam = 252;
+          newGame.scores.playerTeam = 0;
+        } else {
+          newGame.scores.playerTeam =
+            newGame.scores.playerHand + newGame.scores.partnerHand;
+          newGame.scores.opponentsTeam =
+            newGame.scores.leftOpponentHand + newGame.scores.rightOpponentHand;
+
+          if (['playerHand', 'partnerHand'].includes(game.taker)) {
+            if (newGame.scores.playerTeam < 81) {
+              newGame.scores.playerTeam = 0;
+              newGame.scores.opponentsTeam = 162;
+            }
+          } else {
+            if (newGame.scores.opponentsTeam < 81) {
+              newGame.scores.opponentsTeam = 0;
+              newGame.scores.playerTeam = 162;
+            }
+          }
+        }
+
+        if (newGame.scores.beloteHand) {
+          if (
+            ['playerHand', 'partnerHand'].includes(newGame.scores.beloteHand)
+          ) {
+            newGame.scores.playerTeam += 20;
+          } else {
+            newGame.scores.opponentsTeam += 20;
+          }
+        }
+        console.log('scores', { newGame });
+        return newGame;
       }
 
       const highestCard = game.trick.find((card) => {
@@ -914,16 +993,39 @@ export default function Home(): JSX.Element {
       }
 
       const playOptions = getPlayOptions(game, playingHand);
-      const bestPlayOption = playOptions.find((playOption) =>
-        playOptions.every(
-          (anotherPlayOption) =>
-            anotherPlayOption === playOption ||
-            playOption.score >= anotherPlayOption.score,
-        ),
-      );
-      const card = bestPlayOption?.card || game[playingHand][0];
+      const bestPlayOption = playOptions
+        .filter(
+          (playOption) =>
+            !cardPlayErrorMessage(game, playingHand, playOption.card),
+        )
+        .find((playOption) =>
+          playOptions.every(
+            (anotherPlayOption) =>
+              anotherPlayOption === playOption ||
+              playOption.score >= anotherPlayOption.score,
+          ),
+        );
+      const card =
+        bestPlayOption?.card ||
+        game[playingHand].find(
+          (handCard) => !cardPlayErrorMessage(game, playingHand, handCard),
+        );
+      if (!card) {
+        console.error(
+          game[playingHand].map((handCard) =>
+            cardPlayErrorMessage(game, playingHand, handCard),
+          ),
+        );
+      }
+      const errorMessage = cardPlayErrorMessage(game, playingHand, card);
 
       console.log(playingHand, playOptions, card, bestPlayOption);
+      if (errorMessage) {
+        console.error(errorMessage, playOptions);
+      }
+      if (!bestPlayOption?.card) {
+        console.error('No play option:', playOptions);
+      }
 
       waitNextStep(game.trick.length == 3 ? AWARENESS_DELAY : BOT_DELAY);
 
@@ -1688,7 +1790,7 @@ function computeHandScore(game: RunningGame, hand: Hand): number {
   );
 }
 
-function nestCards(stack) {
+function nestCards(stack: CardItem[]): CardItem[] {
   const cards = [...stack];
   const newStack = [];
 
@@ -1700,4 +1802,95 @@ function nestCards(stack) {
   }
 
   return newStack;
+}
+
+function cardPlayErrorMessage(
+  game: RunningGame,
+  hand: Hand,
+  card: CardItem,
+): string {
+  if (game.trick.length === 0) {
+    return '';
+  }
+  if (game.trick[0].suit === game.trump) {
+    if (card.suit !== game.trump) {
+      if (game[hand].every((handCard) => handCard.suit !== game.trump)) {
+        return '';
+      }
+      return "Il est obligatoire de fournir de l'atout";
+    }
+
+    const trickHighestTrump = game.trick.find((trickCard) =>
+      game.trick.every(
+        (anotherTrickCard) =>
+          trickCard === anotherTrickCard ||
+          trickCard.suit !== game.trump ||
+          CARD_FACES_HASH[trickCard.face].trumpRank >
+            CARD_FACES_HASH[anotherTrickCard.face].trumpRank,
+      ),
+    );
+
+    if (
+      CARD_FACES_HASH[card.face].trumpRank >
+        CARD_FACES_HASH[trickHighestTrump.face].trumpRank ||
+      game[hand]
+        .filter((handCard) => handCard.suit === game.trump)
+        .every(
+          (handCard) =>
+            CARD_FACES_HASH[handCard.face].trumpRank <
+            CARD_FACES_HASH[trickHighestTrump.face].trumpRank,
+        )
+    ) {
+      return '';
+    }
+    return 'Il faut toujours monter en atout';
+  }
+
+  if (card.suit !== game.trick[0].suit) {
+    if (game[hand].every((handCard) => handCard.suit !== game.trick[0].suit)) {
+      if (
+        card.suit === game.trump ||
+        game[hand].every((handCard) => handCard.suit !== game.trump)
+      ) {
+        if (
+          game.trick
+            .filter((trickCard) => trickCard.suit === game.trump)
+            .every(
+              (trickCard) =>
+                CARD_FACES_HASH[card.face].trumpRank >
+                CARD_FACES_HASH[trickCard.face].trumpRank,
+            )
+        ) {
+          return '';
+        }
+        const trickHighestTrump = game.trick.find((trickCard) =>
+          game.trick.every(
+            (anotherTrickCard) =>
+              trickCard === anotherTrickCard ||
+              CARD_FACES_HASH[trickCard.face].trumpRank >
+                CARD_FACES_HASH[anotherTrickCard.face].trumpRank,
+          ),
+        );
+        if (
+          game[hand]
+            .filter((handCard) => handCard.suit === game.trump)
+            .every(
+              (handCard) =>
+                CARD_FACES_HASH[handCard.face].trumpRank <
+                CARD_FACES_HASH[trickHighestTrump.face].trumpRank,
+            )
+        ) {
+          return '';
+        }
+        return 'Il faut toujours monter en atout sur une coupe';
+      }
+      return "Il est obligatoire de couper tant qu'on a de l'atout";
+    }
+    if (card.suit === game.trump) {
+      return "Impossible de couper tant qu'il vous reste des cartes de cette suite";
+    }
+    return 'Il est obligatoire de jouer dans la suite demandée';
+  }
+
+  return '';
 }
