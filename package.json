@@ -1,0 +1,102 @@
+{
+  "name": "belote",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "export": "next export && touch out/.nojekyll && echo 'belote.insertafter.com' > out/CNAME && rm out/CNAME",
+    "deploy": "push-dir --dir=out --branch=gh-pages --cleanup",
+    "type-check": "tsc --pretty --noEmit",
+    "format": "prettier --write **/*.{ts,tsx}",
+    "lint": "eslint . --ext ts --ext tsx --ext js",
+    "jest": "TZ=utc jest",
+    "prettier": "prettier --write",
+    "test": "npm run jest",
+    "test:watch": "npm run jest -- --watch",
+    "test:ci": "npm run jest -- --ci",
+    "test:all": "npm lint && npm type-check && npm test",
+    "storybook": "start-storybook -p 6006 -s ./public",
+    "build-storybook": "build-storybook -s ./public",
+    "deploy-storybook": "storybook-to-ghpages"
+  },
+  "dependencies": {
+    "next": "10.0.3",
+    "type-fest": "^0.16.0",
+    "react": "17.0.1",
+    "react-dom": "17.0.1",
+    "react-hook-form": "^6.9.6"
+  },
+  "devDependencies": {
+    "@storybook/addon-actions": "^6.0.26",
+    "@storybook/addon-knobs": "^6.0.26",
+    "@storybook/addon-links": "^6.0.26",
+    "@storybook/addons": "^6.0.26",
+    "@storybook/react": "^6.0.26",
+    "@storybook/storybook-deployer": "^2.8.7",
+    "@testing-library/jest-dom": "^5.11.4",
+    "@testing-library/react": "^11.1.0",
+    "@types/jest": "^26.0.15",
+    "@types/luxon": "^1.25.0",
+    "@types/react-test-renderer": "^16.9.3",
+    "@typescript-eslint/eslint-plugin": "^4.5.0",
+    "@typescript-eslint/parser": "^4.5.0",
+    "babel-jest": "^26.6.0",
+    "babel-loader": "^8.1.0",
+    "eslint": "^7.11.0",
+    "eslint-config-prettier": "^6.14.0",
+    "eslint-plugin-react": "^7.21.5",
+    "fork-ts-checker-webpack-plugin": "5.2.0",
+    "husky": "^4.3.0",
+    "jest": "^26.6.0",
+    "lint-staged": "^10.4.2",
+    "prettier": "^2.1.2",
+    "push-dir": "^0.4.1",
+    "react-test-renderer": "^17.0.0",
+    "storybook-addon-responsive-views": "^2.3.0",
+    "ts-loader": "8.0.6",
+    "typescript": "^4.0.3"
+  },
+  "lint-staged": {
+    "*.@(ts|tsx)": [
+      "npm run lint",
+      "npm run format"
+    ]
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "pre-push": "npm run type-check"
+    }
+  },
+  "eslintConfig": {
+    "parser": "@typescript-eslint/parser",
+    "plugins": [
+      "@typescript-eslint"
+    ],
+    "extends": [
+      "eslint:recommended",
+      "plugin:react/recommended",
+      "plugin:@typescript-eslint/recommended"
+    ],
+    "env": {
+      "es6": true,
+      "browser": true,
+      "jest": true,
+      "node": true
+    }
+  },
+  "babel": {
+    "presets": [
+      "next/babel"
+    ]
+  },
+  "prettier": {
+    "semi": true,
+    "printWidth": 80,
+    "singleQuote": true,
+    "trailingComma": "all",
+    "proseWrap": "always"
+  }
+}

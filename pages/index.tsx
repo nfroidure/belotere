@@ -1,0 +1,1663 @@
+import React, { useState } from 'react';
+import Head from 'next/head';
+import { useForm } from 'react-hook-form';
+import {
+  NUM_PLAYERS,
+  PLAYERS_PER_TEAM,
+  PLAY_ORDER,
+  getRelativeHand,
+} from '../components/trick';
+import Mat from '../components/mat';
+import {
+  CARDS,
+  CARD_FACES_HASH,
+  CARD_SUITS,
+  CARD_SUITS_HASH,
+} from '../components/card';
+import type { CardItem, CardSuit } from '../components/card';
+import type { Trick, Hand } from '../components/trick';
+
+const APP_NAME = 'BeloteRE';
+const BOT_SCORING_CEIL = 8;
+const DEAL_DELAY = 200;
+const BOT_DELAY = 1000;
+const AWARENESS_DELAY = 2000;
+const SECOND_DEAL_LENGTH = 3;
+const NUM_TRICKS = 8;
+
+type InitGame = {
+  type: 'init';
+  playersName: Record<Hand, string>;
+  dealer: Hand;
+  stack: CardItem[];
+};
+type Deal1 = {
+  type: 'deal1';
+  dealer: Hand;
+  stack: CardItem[];
+  playerHand: CardItem[];
+  partnerHand: CardItem[];
+  leftOpponentHand: CardItem[];
+  rightOpponentHand: CardItem[];
+} & Omit<InitGame, 'type' | 'stack'>;
+type Bid1 = {
+  type: 'bid1';
+  bids: number;
+  card: CardItem;
+} & Omit<Deal1, 'type'>;
+type Bid2 = {
+  type: 'bid2';
+} & Omit<Bid1, 'type'>;
+
+type Deal2 = {
+  type: 'deal2';
+  taker: Hand;
+  trump: CardSuit;
+  card?: CardItem;
+} & Omit<Deal1, 'type'>;
+
+type RunningGame = {
+  type: 'running';
+  trick: Trick;
+  taker: Hand;
+  leader: Hand;
+  endedTricks: {
+    cards: Trick;
+    leader: Hand;
+    winner: Hand;
+  }[];
+} & Omit<Deal2, 'type'>;
+
+type Score = {
+  type: 'score';
+  scores: Record<Hand, number>;
+} & Omit<RunningGame, 'type' | 'trick'>;
+
+type GameState = InitGame | Deal1 | Bid1 | Bid2 | Deal2 | RunningGame | Score;
+
+const otherPlayersName: Record<Exclude<Hand, 'playerHand'>, string> = {
+  partnerHand: 'Partenaire',
+  rightOpponentHand: 'Adversaire de droite',
+  leftOpponentHand: 'Adversaire de gauche',
+};
+
+export default function Home(): JSX.Element {
+  const [game, setGame] = useState<GameState>({
+    type: 'init',
+    playersName: {
+      ...otherPlayersName,
+      playerHand: '',
+    },
+    dealer: PLAY_ORDER[Math.floor(Math.random() * 4)],
+    stack: nestCards(CARDS),
+  });
+  const [message, setMessage] = useState<string>('');
+  const [waitingNextStep, setWaitingNextStep] = useState<boolean>(false);
+  type FormData = {
+    name: string;
+  };
+  const { register, handleSubmit, errors } = useForm<FormData>();
+
+  return (
+    <div className="root">
+      <Head>
+        <title>{APP_NAME}</title>
+        <link rel="icon" href="/favicon.ico" />
+      </Head>
+      <header>
+        <h1>{APP_NAME}</h1>
+        {game.type === 'deal1' ||
+        game.type === 'deal2' ||
+        game.type === 'bid1' ||
+        game.type === 'bid2' ? (
+          <p key="dealer" className="metric">
+            Donneur
+            <br />
+            <span>{game.playersName[game.dealer]}</span>
+          </p>
+        ) : null}
+        {game.type === 'running' || game.type === 'deal2' ? (
+          <p key="trump" className="metric">
+            Atout
+            <br />
+            <span className="suit">{game.trump}</span>
+          </p>
+        ) : null}
+        {game.type === 'running' || game.type === 'deal2' ? (
+          <p key="taker" className="metric">
+            Preneur
+            <br />
+            <span>{game.playersName[game.taker]}</span>
+          </p>
+        ) : null}
+        {game.type === 'running' ? (
+          <p key="leader" className="metric">
+            Meneur
+            <br />
+            <span>{game.playersName[game.leader]}</span>
+          </p>
+        ) : null}
+      </header>
+      <div className={`notice${message ? ' active' : ''}`}>{message}</div>
+      <div className={`popup${waitingNextStep ? ' active' : ''}`}>
+        En pause
+        <br />{' '}
+        <button
+          onClick={() => waitingNextStep && runNextStep()}
+          autoFocus={true}
+        >
+          Continuer
+        </button>
+      </div>
+      <main>
+        {game.type === 'init' && !game.playersName.playerHand ? (
+          <div className="popup active">
+            <h2>Bienvenue</h2>
+            <p>
+              Pour commencer une nouvelle partie, entrez votre prenom ou surnom.
+            </p>
+            <form
+              onSubmit={handleSubmit((data) => {
+                setGame((game) => {
+                  if (game.type === 'init') {
+                    return {
+                      ...game,
+                      type: 'init',
+                      playersName: {
+                        ...game.playersName,
+                        playerHand: data.name,
+                      },
+                    };
+                  }
+                  return game;
+                });
+                setMessage(`${data.name} démarre une partie !`);
+                setGame(runGame);
+              })}
+            >
+              <p>
+                <label>
+                  Nom{errors?.name ? ' (requis)' : ''} :<br />
+                  <input
+                    type="text"
+                    name="name"
+                    id="win'+w.id-name"
+                    placeholder="John"
+                    defaultValue={game.playersName['playerHand']}
+                    ref={register({ required: true })}
+                  />
+                </label>
+              </p>
+              <p>
+                <input type="submit" value="Commencer une partie" />
+              </p>
+            </form>
+          </div>
+        ) : null}
+        {game.type !== 'init' ? (
+          <Mat
+            trick={
+              game.type === 'running'
+                ? game.trick
+                : game.type === 'bid1' || game.type === 'bid2'
+                ? [game.card]
+                : game.type === 'deal2'
+                ? game.card
+                  ? [game.card]
+                  : []
+                : []
+            }
+            playerHand={game.playerHand}
+            partnerHand={game.partnerHand}
+            leftOpponentHand={game.leftOpponentHand}
+            rightOpponentHand={game.rightOpponentHand}
+            leader={game.type === 'running' ? game.leader : game.dealer}
+            hand={
+              game.type === 'running'
+                ? getRelativeHand(game.leader, game.trick.length)
+                : game.dealer
+            }
+            onCardSelect={(card) => {
+              // TODO: Debounce this event
+
+              setGame(
+                (game): GameState => {
+                  if (
+                    game.type === 'running' &&
+                    game.trick.length < NUM_PLAYERS &&
+                    getRelativeHand(game.leader, game.trick.length) ===
+                      'playerHand'
+                  ) {
+                    waitNextStep(BOT_DELAY);
+                    return {
+                      ...game,
+                      trick: game.trick.concat(card) as Trick,
+                      playerHand: game.playerHand.filter(
+                        (aCard) => aCard !== card,
+                      ),
+                    };
+                  }
+                  return game;
+                },
+              );
+            }}
+          />
+        ) : null}
+        {game.type === 'bid1' &&
+        getRelativeHand(game.dealer, game.bids + 1) === 'playerHand' ? (
+          <div className="popup active">
+            <h2>1er tour</h2>
+            <p>Souhaitez-vous prendre en {game.card.suit} ?</p>
+            <p>
+              <button
+                onClick={() => {
+                  setGame(
+                    (game): GameState => {
+                      if (game.type === 'bid1') {
+                        waitNextStep(AWARENESS_DELAY);
+                        setMessage(`Vous prenez en ${game.card.suit} !`);
+                        return {
+                          ...game,
+                          type: 'deal2',
+                          taker: 'playerHand',
+                          trump: game.card.suit,
+                        };
+                      }
+                      return game;
+                    },
+                  );
+                }}
+              >
+                Oui
+              </button>{' '}
+              <button
+                onClick={() => {
+                  setGame(
+                    (game): GameState => {
+                      if (game.type === 'bid1') {
+                        waitNextStep(BOT_DELAY);
+                        setMessage(`Vous passez votre tour.`);
+                        return {
+                          ...game,
+                          type: 'bid1',
+                          bids: game.bids + 1,
+                        };
+                      }
+                      return game;
+                    },
+                  );
+                }}
+              >
+                Non
+              </button>
+            </p>
+          </div>
+        ) : null}
+
+        {game.type === 'bid2' &&
+        getRelativeHand(game.dealer, game.bids + 1) === 'playerHand' ? (
+          <div className="popup active">
+            <h2>2nd tour</h2>
+            <p>Souhaitez-vous prendre ?</p>
+            <p>
+              {CARD_SUITS.filter((suit) => suit !== game.card.suit).map(
+                (suit) => [
+                  <button
+                    key={suit}
+                    onClick={() => {
+                      setGame(
+                        (game): GameState => {
+                          if (game.type === 'bid2') {
+                            waitNextStep(AWARENESS_DELAY);
+                            setMessage(`Vous prenez en ${suit} !`);
+                            return {
+                              ...game,
+                              type: 'deal2',
+                              taker: 'playerHand',
+                              trump: suit,
+                            };
+                          }
+                          return game;
+                        },
+                      );
+                    }}
+                  >
+                    {suit}
+                  </button>,
+                  ' ',
+                ],
+              )}
+              <button
+                onClick={() => {
+                  setGame(
+                    (game): GameState => {
+                      if (game.type === 'bid2') {
+                        waitNextStep(BOT_DELAY);
+                        setMessage(`Vous passez votre tour.`);
+                        return {
+                          ...game,
+                          type: 'bid2',
+                          bids: game.bids + 1,
+                        };
+                      }
+                      return game;
+                    },
+                  );
+                }}
+              >
+                Non
+              </button>
+            </p>
+          </div>
+        ) : null}
+        {game.type === 'score' ? (
+          <div className="popup active">
+            <h2>Score</h2>
+            <h3>
+              Votre équipe - {game.scores.playerHand + game.scores.partnerHand}{' '}
+              points
+            </h3>
+            <p>
+              {game.playersName.playerHand} : {game.scores.playerHand} points
+              <br />
+              {game.playersName.partnerHand} : {game.scores.partnerHand} points
+            </p>
+            <h3>
+              Adversaires -{' '}
+              {game.scores.leftOpponentHand + game.scores.rightOpponentHand}{' '}
+              points
+            </h3>
+            <p>
+              {game.playersName.leftOpponentHand} :{' '}
+              {game.scores.leftOpponentHand}
+              <br />
+              {game.playersName.rightOpponentHand} :{' '}
+              {game.scores.rightOpponentHand}
+            </p>
+            <p>
+              <button
+                onClick={() => {
+                  setGame(
+                    (game): GameState => {
+                      if (game.type === 'score') {
+                        waitNextStep(BOT_DELAY);
+                        return {
+                          type: 'init',
+                          playersName: game.playersName,
+                          dealer: getRelativeHand(game.dealer, 1),
+                          stack: game.endedTricks.reduce(
+                            (newStack, trick) => [...newStack, ...trick.cards],
+                            [],
+                          ),
+                        };
+                      }
+                      return game;
+                    },
+                  );
+                }}
+              >
+                Rejouer
+              </button>
+            </p>
+          </div>
+        ) : null}
+      </main>
+      <footer>
+        Made with love by{' '}
+        <a
+          href="https://insertafter.com?utm_source=belote&utm_medium=footer&utm_campaign=pocs"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Nicolas Froidure
+        </a>
+      </footer>
+      <style jsx>{`
+        .root {
+          height: 100vh;
+          background-color: green;
+          background-image: linear-gradient(
+            bottom,
+            rgb(73, 118, 41) 29%,
+            rgb(103, 154, 70) 65%,
+            rgb(134, 185, 98) 83%
+          );
+        }
+        header {
+          position: absolute;
+          top: 0;
+          width: 100vw;
+          display: flex;
+          background: var(--dark);
+          font-size: var(--greatFontSize);
+          line-height: var(--greatLineHeight);
+        }
+        header h1 {
+          font-size: var(--greatFontSize);
+          line-height: var(--greatLineHeight);
+          padding: 0 var(--gutter);
+          flex-grow: 1;
+          font-weight: bold;
+        }
+        header .metric {
+          padding: 0 var(--gutter);
+          border-left: var(--border) solid var(--grey);
+          text-align: center;
+        }
+        header .metric span {
+          padding: 0 var(--gutter);
+          text-align: center;
+          color: var(--light);
+          font-size: var(--smallFontSize);
+        }
+        header .metric span.suit {
+          font-size: var(--greatFontSize);
+        }
+        header,
+        footer {
+          color: #ffcc00;
+          text-shadow: 2px 2px 8px #000, 1px 1px 0 #ff3300, -1px -1px 0 #ffff00;
+          font-family: Arial black, sans-serif;
+          text-shadow: 2px 2px 8px #000;
+        }
+        footer {
+          position: absolute;
+          bottom: 0;
+          width: 100vw;
+          padding: var(--vRythm) var(--gutter);
+          text-align: right;
+          font-size: var(--smallFontSize);
+        }
+        footer a,
+        footer a:visited,
+        footer a:hover {
+          color: var(--light);
+          font-size: var(--smallFontSize);
+        }
+        .popup,
+        .notice {
+          position: absolute;
+          width: calc(var(--block) * 2 + var(--gutter));
+          background: rgba(0, 0, 0, 0.5);
+          display: none;
+          padding: var(--vRythm) var(--gutter);
+          color: #ddd;
+          text-shadow: 2px 2px 8px #000, 1px 1px 0 #000, -1px -1px 0 #ccc;
+          font-weight: bold;
+          border-radius: var(--borderRadius);
+          text-align: center;
+          z-index: 10;
+        }
+        .popup.active {
+          display: block;
+          left: calc(50% - calc(calc(var(--block) * 2 + var(--gutter)) / 2));
+          top: calc(var(--vRythm) * 4);
+        }
+        .notice.active {
+          display: block;
+          left: calc(50% - calc(calc(var(--block) * 2 + var(--gutter)) / 2));
+          bottom: var(--vRythm);
+        }
+        .popup.active h2 {
+          line-height: calc(var(--vRythm) * 2);
+          font-size: var(--bigFontSize);
+          text-shadow: 2px 2px 8px #000;
+          color: #ffcc00;
+          text-shadow: 2px 2px 8px #000, 1px 1px 0 #ff3300, -1px -1px 0 #ffff00;
+          text-align: center;
+          margin: 0 0 var(--vRythm) 0;
+          font-weight: bold;
+          font-family: Arial black, sans-serif;
+        }
+        .popup.active h3 {
+          line-height: calc(var(--vRythm) * 2);
+          font-size: var(--bigFontSize);
+        }
+        .popup.active p,
+        .popup.active ul {
+          margin: 0 0 var(--vRythm) 0;
+        }
+        .popup.active label {
+          color: #ffcc00;
+          text-shadow: 2px 2px 8px #000, 1px 1px 0 #ff3300, -1px -1px 0 #ffff00;
+          line-height: var(--vRythm);
+          font-size: var(--bigFontSize);
+        }
+        .popup.active input[type='text'] {
+          padding: 0 var(--gutter);
+          margin: 0;
+          line-height: var(--vRythm);
+          border: 0;
+          border-radius: var(--borderRadius);
+          box-shadow: 1px 1px 1px #000;
+        }
+        .popup.active input[type='submit'],
+        .popup.active button {
+          padding: 0 var(--gutter);
+          line-height: var(--vRythm);
+          height: var(--vRythm);
+          border: 0;
+          border-radius: var(--borderRadius);
+          box-shadow: 1px 1px 1px #000, 1px 1px 0 #ff3300, -1px -1px 0 #ffff00;
+          font-weight: bold;
+          color: #ffcc00;
+          text-shadow: 2px 2px 15px #ff3300, 1px 1px 0 #ff3300,
+            -1px -1px 0 #ffff00;
+          background: #ffdd00;
+        }
+      `}</style>
+    </div>
+  );
+
+  function waitNextStep(delay: number) {
+    setWaitingNextStep(true);
+    setTimeout(() => {
+      runNextStep();
+    }, delay);
+  }
+  function runNextStep() {
+    setWaitingNextStep((state: boolean) => {
+      if (state) {
+        setMessage('');
+        setGame(runGame);
+      }
+      return false;
+    });
+  }
+
+  function runGame(game: GameState): GameState {
+    if (game.type === 'init') {
+      waitNextStep(BOT_DELAY);
+
+      setMessage(`${game.playersName[game.dealer]} distribue !`);
+
+      return {
+        ...game,
+        type: 'deal1',
+        stack: game.stack,
+        playerHand: [],
+        partnerHand: [],
+        leftOpponentHand: [],
+        rightOpponentHand: [],
+      };
+    }
+
+    if (game.type === 'deal1') {
+      const firstDealEnded =
+        game.stack.length <= NUM_PLAYERS * SECOND_DEAL_LENGTH;
+      if (firstDealEnded) {
+        waitNextStep(AWARENESS_DELAY);
+        const card = game.stack.pop();
+
+        setMessage(
+          `${game.playersName[game.dealer]} retourne ${
+            card.name
+          }. Premier tour d'enchères !`,
+        );
+
+        console.log({ dealer: game.dealer, card });
+
+        return {
+          ...game,
+          type: 'bid1',
+          bids: 0,
+          card,
+          stack: [...game.stack],
+          playerHand: sortCards(game.playerHand, [card.suit]),
+          partnerHand: sortCards(game.partnerHand, [card.suit]),
+          leftOpponentHand: sortCards(game.leftOpponentHand, [card.suit]),
+          rightOpponentHand: sortCards(game.rightOpponentHand, [card.suit]),
+        };
+      }
+      waitNextStep(DEAL_DELAY);
+
+      const destinationHand = getDestinationHand(
+        game.dealer,
+        game.stack.length,
+      );
+      const card = game.stack.pop();
+
+      return {
+        ...game,
+        stack: [...game.stack],
+        [destinationHand]: sortCards([...game[destinationHand], card]),
+      };
+    }
+    if (game.type === 'bid1') {
+      if (game.bids >= NUM_PLAYERS) {
+        waitNextStep(BOT_DELAY);
+        return {
+          ...game,
+          type: 'bid2',
+          bids: 0,
+          playerHand: sortCards(game.playerHand, CARD_SUITS),
+          partnerHand: sortCards(game.partnerHand, CARD_SUITS),
+          leftOpponentHand: sortCards(game.leftOpponentHand, CARD_SUITS),
+          rightOpponentHand: sortCards(game.rightOpponentHand, CARD_SUITS),
+        };
+      }
+      const nextBidder = getRelativeHand(game.dealer, game.bids + 1);
+      const cardReceiver = getRelativeHand(game.dealer, 1);
+      const nextBidderIsHuman = 'playerHand' === nextBidder;
+      if (nextBidderIsHuman) {
+        console.log(
+          nextBidder,
+          getHandScoring(
+            [
+              ...game[nextBidder],
+              ...(nextBidder === cardReceiver ? [game.card] : []),
+            ],
+            game.card.suit,
+          ),
+        );
+        setMessage(`${game.playersName[nextBidder]} parie !`);
+        return game;
+      }
+
+      const handScoring = getHandScoring(
+        [
+          ...game[nextBidder],
+          ...(nextBidder === cardReceiver ? [game.card] : []),
+        ],
+        game.card.suit,
+      );
+      const riskLevel = Math.floor(Math.random() * 3) + 1;
+      const totalScore = handScoring.reduce(
+        (total, { score }) => total + score,
+        0,
+      );
+
+      console.log({ nextBidder, handScoring, riskLevel });
+
+      if (totalScore > BOT_SCORING_CEIL - riskLevel) {
+        waitNextStep(AWARENESS_DELAY);
+
+        setMessage(
+          `${game.playersName[nextBidder]} prend en ${game.card.suit} !`,
+        );
+        console.log(
+          `${game.playersName[nextBidder]} prend en ${game.card.suit} !`,
+        );
+        return {
+          ...game,
+          type: 'deal2',
+          taker: nextBidder,
+          trump: game.card.suit,
+        };
+      }
+
+      waitNextStep(BOT_DELAY);
+      setMessage(`${game.playersName[nextBidder]} passe !`);
+      return { ...game, bids: game.bids + 1 };
+    }
+    if (game.type === 'bid2') {
+      if (game.bids === NUM_PLAYERS) {
+        waitNextStep(BOT_DELAY);
+        return {
+          type: 'init',
+          playersName: game.playersName,
+          dealer: getRelativeHand(game.dealer, 1),
+          stack: nestCards(CARDS),
+        };
+      }
+
+      const nextBidder = getRelativeHand(game.dealer, game.bids + 1);
+      const cardReceiver = getRelativeHand(game.dealer, 1);
+      const nextBidderIsHuman = 'playerHand' === nextBidder;
+      if (nextBidderIsHuman) {
+        console.log(
+          nextBidder,
+          getHandScoring(
+            [
+              ...game[nextBidder],
+              ...(nextBidder === cardReceiver ? [game.card] : []),
+            ],
+            game.card.suit,
+          ),
+        );
+        setMessage(`${game.playersName[nextBidder]} parie !`);
+        return game;
+      }
+
+      const handScorings = CARD_SUITS.filter(
+        (suit) => suit !== game.card.suit,
+      ).map((suit) => {
+        const handScoring = getHandScoring(
+          [...game[nextBidder], game.card],
+          suit,
+        );
+
+        const totalScore = handScoring.reduce(
+          (total, { score }) => total + score,
+          0,
+        );
+
+        return {
+          suit,
+          handScoring,
+          totalScore,
+        };
+      });
+      const bestHandScoring = handScorings.find((handScoring) => {
+        return handScorings.every(
+          (aHandScoring) =>
+            handScoring === aHandScoring ||
+            handScoring.totalScore >= aHandScoring.totalScore,
+        );
+      });
+      const riskLevel = Math.floor(Math.random() * 3);
+
+      console.log({ nextBidder, handScorings, riskLevel, bestHandScoring });
+
+      if (bestHandScoring.totalScore > BOT_SCORING_CEIL - riskLevel) {
+        waitNextStep(AWARENESS_DELAY);
+        setMessage(
+          `${game.playersName[nextBidder]} prend en ${bestHandScoring.suit} !`,
+        );
+        console.log(
+          `${game.playersName[nextBidder]} prend en ${bestHandScoring.suit} !`,
+        );
+        return {
+          ...game,
+          type: 'deal2',
+          taker: nextBidder,
+          trump: bestHandScoring.suit,
+          playerHand: sortCards(game.playerHand, [bestHandScoring.suit]),
+          partnerHand: sortCards(game.partnerHand, [bestHandScoring.suit]),
+          leftOpponentHand: sortCards(game.leftOpponentHand, [
+            bestHandScoring.suit,
+          ]),
+          rightOpponentHand: sortCards(game.rightOpponentHand, [
+            bestHandScoring.suit,
+          ]),
+        };
+      }
+      waitNextStep(BOT_DELAY);
+
+      setMessage(`${game.playersName[nextBidder]} passe !`);
+      return { ...game, bids: game.bids + 1 };
+    }
+    if (game.type === 'deal2') {
+      const stackIsEmpty = !game.stack.length;
+
+      if (stackIsEmpty) {
+        waitNextStep(BOT_DELAY);
+
+        return {
+          ...game,
+          type: 'running',
+          leader: getRelativeHand(game.dealer, 1),
+          trick: [],
+          endedTricks: [],
+        };
+      }
+
+      waitNextStep(DEAL_DELAY);
+
+      const destinationHand = getDestinationHand(
+        game.dealer,
+        game.stack.length + (game.card ? 1 : 0),
+      );
+      let card;
+
+      if (destinationHand === game.taker && game.card) {
+        card = game.card;
+        delete game.card;
+      } else {
+        card = game.stack.pop();
+      }
+
+      return {
+        ...game,
+        card: game.card,
+        stack: [...game.stack],
+        [destinationHand]: sortCards([...game[destinationHand], card]),
+      };
+    }
+    if (game.type === 'running') {
+      if (game.endedTricks.length === NUM_TRICKS) {
+        return {
+          ...game,
+          type: 'score',
+          scores: {
+            playerHand: computeHandScore(game, 'playerHand'),
+            partnerHand: computeHandScore(game, 'partnerHand'),
+            leftOpponentHand: computeHandScore(game, 'leftOpponentHand'),
+            rightOpponentHand: computeHandScore(game, 'rightOpponentHand'),
+          },
+        };
+      }
+
+      const highestCard = game.trick.find((card) => {
+        return game.trick.every(
+          (aCard: CardItem) =>
+            card === aCard ||
+            (card.suit === game.trump && card.suit !== aCard.suit) ||
+            (card.suit === game.trump &&
+              CARD_FACES_HASH[card.face].trumpRank >
+                CARD_FACES_HASH[aCard.face].trumpRank) ||
+            (card.suit !== game.trump &&
+              aCard.suit !== game.trump &&
+              card.suit === game.trick[0].suit &&
+              (card.suit !== aCard.suit ||
+                CARD_FACES_HASH[card.face].suitRank >
+                  CARD_FACES_HASH[aCard.face].suitRank)),
+        );
+      });
+      console.log({ highestCard });
+      if (game.trick.length === NUM_PLAYERS) {
+        const winner = getRelativeHand(
+          game.leader,
+          game.trick.indexOf(highestCard),
+        );
+
+        waitNextStep(AWARENESS_DELAY);
+
+        setMessage(`${game.playersName[winner]} remporte le pli !`);
+        console.log(`${winner} remporte le pli !`, game.trick);
+
+        return {
+          ...game,
+          trick: [],
+          leader: winner,
+          endedTricks: [
+            ...game.endedTricks,
+            { leader: game.leader, winner, cards: game.trick },
+          ],
+        };
+      }
+
+      const playingHand = getRelativeHand(game.leader, game.trick.length);
+
+      if (playingHand === 'playerHand') {
+        return game;
+      }
+
+      const playOptions = getPlayOptions(game, playingHand);
+      const bestPlayOption = playOptions.find((playOption) =>
+        playOptions.every(
+          (anotherPlayOption) =>
+            anotherPlayOption === playOption ||
+            playOption.score >= anotherPlayOption.score,
+        ),
+      );
+      const card = bestPlayOption?.card || game[playingHand][0];
+
+      console.log(playingHand, playOptions, card, bestPlayOption);
+
+      waitNextStep(game.trick.length == 3 ? AWARENESS_DELAY : BOT_DELAY);
+
+      return {
+        ...game,
+        trick: game.trick.concat(card) as Trick,
+        [playingHand]: game[playingHand].filter((aCard) => aCard !== card),
+      };
+    }
+    return game;
+  }
+
+  type HandScoringLine = { message: string; score: number; cards: CardItem[] };
+
+  function getHandScoring(
+    handCards: CardItem[],
+    trumpSuit: CardSuit,
+  ): HandScoringLine[] {
+    const handScoring: HandScoringLine[] = [];
+    const beloteCards: CardItem[] = [];
+    const trumpCards: CardItem[] = [];
+
+    for (const card of handCards) {
+      if (card.suit === trumpSuit) {
+        if (card.face === 'J') {
+          handScoring.push({
+            message: `Si je prend en ${trumpSuit}, j'ai le valet en atout`,
+            score: 4,
+            cards: [card],
+          });
+        } else if (card.face === '9') {
+          handScoring.push({
+            message: `Si je prend en ${trumpSuit}, j'ai le 9 en atout`,
+            score: 3,
+            cards: [card],
+          });
+        } else if (card.face === 'A') {
+          handScoring.push({
+            message: `Si je prend en ${trumpSuit}, j'ai le ${card.face} en atout`,
+            score: trumpCards.length > 2 ? 3 : 2,
+            cards: [card],
+          });
+        } else if (card.face === 'K' || card.face === 'Q') {
+          beloteCards.push(card);
+          trumpCards.push(card);
+        } else {
+          trumpCards.push(card);
+        }
+      } else if (card.face === 'A') {
+        handScoring.push({
+          message: `J'ai un as de ${card.suit}.`,
+          score: 2,
+          cards: beloteCards,
+        });
+      } else if (card.face === '10') {
+        const otherCards: CardItem[] = [];
+        for (const otherCard of handCards) {
+          if (card !== otherCard && card.suit === otherCard.suit) {
+            otherCards.push(card);
+            continue;
+          }
+        }
+        if (!otherCards.length) {
+          continue;
+        }
+        handScoring.push({
+          message: `J'ai un 10 de ${card.suit} avec ${otherCards.length} de sécurité.`,
+          score: 1,
+          cards: [card, ...otherCards],
+        });
+      }
+    }
+    if (trumpCards.length) {
+      handScoring.push({
+        message: `Si je prend en ${trumpSuit}, j'ai ${trumpCards.length} atouts complémentaires.`,
+        score: trumpCards.length,
+        cards: beloteCards,
+      });
+    }
+    if (beloteCards.length === 2) {
+      handScoring.push({
+        message: `Si je prend en ${trumpSuit}, j'ai la belote et re.`,
+        score: 1,
+        cards: beloteCards,
+      });
+    }
+    return handScoring;
+  }
+  function getDestinationHand(dealer: Hand, stackLength): Hand {
+    return PLAY_ORDER[
+      (PLAY_ORDER.indexOf(dealer) + 1 - (stackLength % 4) + NUM_PLAYERS) %
+        NUM_PLAYERS
+    ];
+  }
+}
+
+function sortCards(
+  cards: CardItem[],
+  trumps: readonly CardSuit[] = [],
+): CardItem[] {
+  const suits = cards
+    .reduce((allSuits, card) => {
+      if (allSuits.includes(card.suit)) {
+        return allSuits;
+      }
+      return allSuits.concat(card.suit);
+    }, [])
+    .sort();
+  const sortedSuits = [];
+
+  while (suits.length) {
+    if (sortedSuits.length === 0) {
+      sortedSuits.push(suits.pop());
+    }
+    let selectedSuit: CardSuit;
+
+    for (const candidateSuit of suits) {
+      if (
+        CARD_SUITS_HASH[candidateSuit].color !==
+        CARD_SUITS_HASH[sortedSuits[sortedSuits.length - 1]].color
+      ) {
+        selectedSuit = candidateSuit;
+        break;
+      }
+    }
+    if (selectedSuit) {
+      suits.splice(suits.indexOf(selectedSuit), 1);
+      sortedSuits.push(selectedSuit);
+      continue;
+    }
+    sortedSuits.unshift(suits.pop());
+  }
+
+  return cards.sort(cardSorter);
+
+  function cardSorter(cardA: CardItem, cardB: CardItem): number {
+    const cardASuitIndex = sortedSuits.indexOf(cardA.suit);
+    const cardBSuitIndex = sortedSuits.indexOf(cardB.suit);
+
+    if (cardASuitIndex < cardBSuitIndex) {
+      return -1;
+    }
+    if (cardASuitIndex > cardBSuitIndex) {
+      return 1;
+    }
+
+    if (trumps.includes(cardA.suit)) {
+      if (
+        CARD_FACES_HASH[cardA.face].trumpRank <
+        CARD_FACES_HASH[cardB.face].trumpRank
+      ) {
+        return -1;
+      }
+      return 1;
+    }
+    if (
+      CARD_FACES_HASH[cardA.face].suitRank <
+      CARD_FACES_HASH[cardB.face].suitRank
+    ) {
+      return -1;
+    }
+
+    return 1;
+  }
+}
+
+function getPartnerHand(hand: Hand): Hand {
+  return PLAY_ORDER[
+    (PLAY_ORDER.indexOf(hand) + PLAYERS_PER_TEAM) % NUM_PLAYERS
+  ];
+}
+
+type ThinkItem = { sentence: string; card?: CardItem; score?: number };
+
+function getPlayThoughts(game: RunningGame, hand: Hand): ThinkItem[] {
+  const partnerHand = getPartnerHand(hand);
+  const thinkLog: ThinkItem[] = [];
+  const trickTrumps = sortCards(
+    game.trick.filter((card) => card.suit === game.trump),
+    [game.trump],
+  );
+  const trickHasTrump = !!trickTrumps.length;
+  const lowestValueCard = game[hand].reduce(
+    (lowestCard, card) =>
+      CARD_FACES_HASH[lowestCard.face].suitValue <
+      CARD_FACES_HASH[card.face].suitValue
+        ? lowestCard
+        : card,
+    game[hand][0],
+  );
+  const otherHandsLeft = CARD_SUITS.reduce(
+    (allHands, suit) => ({
+      ...allHands,
+      [suit]: sortCards(
+        PLAY_ORDER.filter((aHand) => aHand !== hand).reduce(
+          (cards, hand) => [
+            ...cards,
+            ...game[hand].filter((card) => card.suit === suit),
+          ],
+          [],
+        ),
+        [game.trump],
+      ),
+    }),
+    {},
+  ) as Record<CardSuit, CardItem[]>;
+  const allHandsLeft = CARD_SUITS.reduce(
+    (allHands, suit) => ({
+      ...allHands,
+      [suit]: sortCards(
+        PLAY_ORDER.reduce(
+          (cards, hand) => [
+            ...cards,
+            ...game[hand].filter((card) => card.suit === suit),
+          ],
+          [],
+        ),
+        [game.trump],
+      ),
+    }),
+    {},
+  ) as Record<CardSuit, CardItem[]>;
+  const handLeftTrumps = sortCards(
+    game[hand].filter((card) => card.suit === game.trump),
+    [game.trump],
+  );
+  const handLowerTrumps = trickHasTrump
+    ? handLeftTrumps.filter(
+        (card) =>
+          CARD_FACES_HASH[card.face].trumpRank <
+          CARD_FACES_HASH[trickTrumps[0].face].trumpRank,
+      )
+    : [];
+  const handHigherTrumps = trickHasTrump
+    ? handLeftTrumps.filter(
+        (card) =>
+          CARD_FACES_HASH[card.face].trumpRank >
+          CARD_FACES_HASH[trickTrumps[trickTrumps.length - 1].face].trumpRank,
+      )
+    : handLeftTrumps;
+
+  thinkLog.push({
+    sentence: `I have ${handLeftTrumps.length} trumps on ${
+      allHandsLeft[game.trump].length
+    } left trumps`,
+  });
+
+  if (!game.trick.length) {
+    thinkLog.push({
+      sentence:
+        "No cards in the trick, I'm the leader. Let's review all my cards.",
+    });
+
+    for (const card of game[hand]) {
+      if (card.suit === game.trump) {
+        thinkLog.push({
+          sentence: 'The card is a trump.',
+          card,
+          score: 0,
+        });
+
+        if (otherHandsLeft[game.trump].length === 0) {
+          thinkLog.push({
+            sentence: "I'm the last to have trumps.",
+            card,
+            score: -1,
+          });
+          continue;
+        }
+
+        if (partnerHand === game.taker && card.face === 'J') {
+          thinkLog.push({
+            sentence:
+              "The card is the highest possible trump, I'm in the taker team",
+            card,
+            score: 9,
+          });
+          continue;
+        }
+
+        const cardIsHighestTrump = otherHandsLeft[game.trump].length
+          ? CARD_FACES_HASH[card.face].trumpRank >
+            CARD_FACES_HASH[
+              otherHandsLeft[game.trump][otherHandsLeft[game.trump].length - 1]
+                .face
+            ].trumpRank
+          : true;
+
+        if (cardIsHighestTrump) {
+          console.log({ otherHandsLeft });
+          thinkLog.push({
+            sentence: 'The card is the highest trump.',
+            card,
+            score: 1,
+          });
+
+          if (
+            getPartnerHand(hand) === game.taker &&
+            allHandsLeft[game.trump].length >= 6
+          ) {
+            thinkLog.push({
+              sentence:
+                "I'm in the taker team and there is a lot of trumps left in the game.",
+              card,
+              score: 8,
+            });
+          } else if (
+            allHandsLeft[game.trump].length / 3 <
+            handLeftTrumps.length
+          ) {
+            thinkLog.push({
+              sentence:
+                'I probably have enought trumps to be the last to have some.',
+              card,
+              score: 8,
+            });
+          }
+
+          if (
+            getPartnerHand(hand) === game.taker &&
+            CARD_FACES_HASH[card.face].trumpRank === 0 &&
+            allHandsLeft[game.trump].length >= 6
+          ) {
+            thinkLog.push({
+              sentence:
+                "The card is a null trump, I'm in the taker team, there are lot of trumps left.",
+              card,
+              score: 2,
+            });
+          } else if (CARD_FACES_HASH[card.face].trumpRank === 0) {
+            thinkLog.push({
+              sentence:
+                'The card is a null trump, I can try to know what my partner want me to play.',
+              card,
+              score: 1,
+            });
+          } else if (CARD_FACES_HASH[card.face].trumpRank <= 3) {
+            thinkLog.push({
+              sentence:
+                "I've a low trump, I can try to know what my partner want me to play.",
+              card,
+              score: 0,
+            });
+          }
+        }
+      } else {
+        // voir aussi faire couper adversaire en memorisant qui coupe
+        // Si j'ai le prochain atout maitre et que j'ai assez d'atout pour éliminer les autres, je joue l'atout.
+        thinkLog.push({
+          sentence: 'The card is not a trump.',
+          card,
+          score: 0,
+        });
+
+        const highest =
+          otherHandsLeft[card.suit].every(
+            (aSuitCard) =>
+              CARD_FACES_HASH[card.face].suitRank >
+              CARD_FACES_HASH[aSuitCard.face].suitRank,
+          ) &&
+          game[hand].every(
+            (aSuitCard) =>
+              aSuitCard === card ||
+              aSuitCard.suit !== card.suit ||
+              CARD_FACES_HASH[card.face].suitRank >
+                CARD_FACES_HASH[aSuitCard.face].suitRank,
+          );
+
+        if (highest) {
+          thinkLog.push({
+            sentence: 'The card is the highest left of his suit.',
+            card,
+            score: 3,
+          });
+          if (otherHandsLeft[game.trump].length === 0) {
+            thinkLog.push({
+              sentence: 'There are no more trumps.',
+              card,
+              score: 5,
+            });
+          } else {
+            if (otherHandsLeft[game.trump].length < 3) {
+              thinkLog.push({
+                sentence: 'Only a few trumps left.',
+                card,
+                score: 3 - otherHandsLeft[game.trump].length,
+              });
+            }
+            if (game.stack.length < 4 * NUM_PLAYERS) {
+              thinkLog.push({
+                sentence: 'There are still a half of the tricks to play.',
+                card,
+                score: 1,
+              });
+            }
+            if (otherHandsLeft[card.suit].length > 5) {
+              thinkLog.push({
+                sentence: 'There are a lot of cards of the same suit left.',
+                card,
+                score: 1,
+              });
+            }
+          }
+          if (otherHandsLeft[card.suit].length === 7) {
+            thinkLog.push({
+              sentence: 'The suit has not been played yet.',
+              card,
+              score: 1,
+            });
+          }
+        } else if (
+          allHandsLeft[card.suit].length >= 6 &&
+          CARD_FACES_HASH[card.face].suitValue <= 3
+        ) {
+          thinkLog.push({
+            sentence:
+              'The suit of this card has not been played so much yet and the card is low.',
+            card,
+            score: 0,
+          });
+          if (allHandsLeft[card.suit].length === 8) {
+            thinkLog.push({
+              sentence: 'The suit of this card has not been played at all.',
+              card,
+              score: 1,
+            });
+          }
+          if (CARD_FACES_HASH[card.face].suitValue === 0) {
+            thinkLog.push({
+              sentence: 'The card has no value.',
+              card,
+              score: 1,
+            });
+          }
+
+          const handHighest = sortCards(
+            game[hand].filter(
+              (aCard) => aCard !== card && aCard.suit === card.suit,
+            ),
+          ).pop();
+          const othersSecondHighest =
+            otherHandsLeft[card.suit].length >= 2
+              ? otherHandsLeft[card.suit][otherHandsLeft[card.suit].length - 2]
+              : undefined;
+          const isGameNextHighest =
+            handHighest &&
+            othersSecondHighest &&
+            CARD_FACES_HASH[handHighest.face].suitValue >
+              CARD_FACES_HASH[othersSecondHighest.face].suitValue;
+
+          if (isGameNextHighest) {
+            thinkLog.push({
+              sentence:
+                'I have the next highest card, I can try to let fall the highest.',
+              card,
+              score: 2,
+            });
+          }
+        }
+      }
+    }
+    return thinkLog;
+  }
+
+  const askedSuitCards = game[hand].filter(
+    (card) => card.suit === game.trick[0].suit,
+  );
+
+  if (askedSuitCards.length === 1) {
+    thinkLog.push({
+      sentence: 'I have only one card of the asked suit, I have to play her.',
+      card: askedSuitCards[0],
+      score: 9,
+    });
+
+    return thinkLog;
+  }
+
+  if (game.trick[0].suit === game.trump) {
+    thinkLog.push({
+      sentence: 'The leader played a trump.',
+    });
+
+    if (askedSuitCards.length) {
+      thinkLog.push({
+        sentence: "I've some trumps.",
+      });
+
+      if (handHigherTrumps.length === 1) {
+        thinkLog.push({
+          sentence: 'Only 1 highter trump, I play him.',
+          card: handHigherTrumps[0],
+          score: 9,
+        });
+        return thinkLog;
+      }
+
+      if (handHigherTrumps.length) {
+        if (game.trick.length === 3) {
+          thinkLog.push({
+            sentence:
+              "I have some highter trumps, I'm the last to play, I play the lowest of the highest.",
+            card: handHigherTrumps[0],
+            score: 9,
+          });
+          return thinkLog;
+        }
+
+        // TODO: Implement more choices : here otherwise play lowest of highest
+        thinkLog.push({
+          sentence:
+            'I have some highter trumps, I play the highest if it is the highest left in the game.',
+          card: handHigherTrumps[handHigherTrumps.length - 1],
+          score: 9,
+        });
+        return thinkLog;
+      }
+
+      thinkLog.push({
+        sentence:
+          'I just have lower trumps and my partner is not leader, I play the lowest.',
+        card: handLowerTrumps[0],
+        score: 9,
+      });
+    }
+    thinkLog.push({
+      sentence: `I've no trumps`,
+    });
+    if (
+      game.trick.indexOf(trickTrumps[trickTrumps.length - 1]) ===
+      game.trick.length - 2
+    ) {
+      thinkLog.push({
+        sentence: `My partner wins, I'm playing a non best high value card.`,
+        card: game[hand][0], // TODO: fully implement the lowest card
+        score: 9,
+      });
+    } else {
+      thinkLog.push({
+        sentence: `My partner does not win, I'm playing a low value card.`,
+        card: lowestValueCard,
+        score: 9,
+      });
+    }
+  } else if (askedSuitCards.length) {
+    thinkLog.push({
+      sentence: `The leader asked a suit i can serve`,
+    });
+
+    if (trickTrumps.length === 0) {
+      thinkLog.push({
+        sentence: `No cut for now`,
+      });
+
+      const lowestSuitCard = askedSuitCards.find((suitCard) =>
+        askedSuitCards.every(
+          (anotherSuitCard) =>
+            suitCard === anotherSuitCard ||
+            CARD_FACES_HASH[suitCard.face].suitRank <
+              CARD_FACES_HASH[anotherSuitCard.face].suitRank,
+        ),
+      );
+      const highestSuitCard = askedSuitCards.find((suitCard) =>
+        askedSuitCards.every(
+          (anotherSuitCard) =>
+            suitCard === anotherSuitCard ||
+            CARD_FACES_HASH[suitCard.face].suitRank >
+              CARD_FACES_HASH[anotherSuitCard.face].suitRank,
+        ),
+      );
+      const isHighestCardLeft =
+        highestSuitCard &&
+        otherHandsLeft[game.trick[0].suit]
+          .concat(game.trick.filter((card) => card.suit === game.trick[0].suit))
+          .every(
+            (aOtherCard) =>
+              CARD_FACES_HASH[aOtherCard.face].suitRank <
+              CARD_FACES_HASH[highestSuitCard.face].suitRank,
+          );
+
+      if (isHighestCardLeft && game.trick.length === 3) {
+        thinkLog.push({
+          sentence: `The card is the highest of his suit and I'm the last to play.`,
+          card: highestSuitCard,
+          score: 5,
+        });
+      } else if (isHighestCardLeft) {
+        thinkLog.push({
+          sentence: `The card is the highest of his suit.`,
+          card: highestSuitCard,
+          score: 4,
+        });
+      } // Could also give points to the partner if he is the winner
+      else {
+        thinkLog.push({
+          sentence: `I've some cards of the asked suit, I play the lowest.`,
+          card: lowestSuitCard,
+          score: 2,
+        });
+      }
+    } else {
+      thinkLog.push({
+        sentence: `A player throwed a trump.`,
+      });
+      if (
+        game.trick.indexOf(trickTrumps[trickTrumps.length - 1]) ===
+          game.trick.length - 2 &&
+        game.trick.length === 3
+      ) {
+        // TODO: Implement that logic
+        thinkLog.push({
+          sentence: `My partner wins, I'm the last to play, putting the non-master card with the best value.`,
+          card: lowestValueCard,
+          score: 9,
+        });
+      } else {
+        thinkLog.push({
+          sentence: `My partner does not win, i'm playing a low value card.`,
+          card: askedSuitCards[0],
+          score: 9,
+        });
+      }
+    }
+  } else if (handLeftTrumps.length == 1) {
+    // NONON, vérifier si partenaire est maitre,
+    // laisser traiter par la suite
+    thinkLog.push({
+      sentence: `I can't play cards of the asked suit, and I've only one trump, I play him.`,
+      card: handLeftTrumps[0],
+      score: 9,
+    });
+  } else if (handLeftTrumps.length) {
+    if (!trickHasTrump) {
+      thinkLog.push({
+        sentence: `No trumps in the trick.`,
+      });
+      const masterCard = game.trick.find(
+        (card) =>
+          card.suit === game.trick[0].suit &&
+          game.trick.every(
+            (aCard) =>
+              card !== aCard &&
+              CARD_FACES_HASH[card.face].suitRank >
+                CARD_FACES_HASH[aCard.face].suitRank,
+          ),
+      );
+      if (game.trick.indexOf(masterCard) === game.trick.length - 2) {
+        thinkLog.push({
+          sentence: `My partner wins, I don't have to trump, I play the lowest card.`,
+          card: lowestValueCard,
+          score: 9,
+        });
+      } else if (game.trick.length === 3) {
+        thinkLog.push({
+          sentence: `I can't play cards of the asked suit, I've some trumps and I'm the last to play, I play my lowest trump.`,
+          card: handLowerTrumps.length ? handLowerTrumps[0] : handLeftTrumps[0],
+          score: 9,
+        });
+      } else {
+        thinkLog.push({
+          sentence: `I can't play cards of the asked suit, and i've some trumps, i play one of the highest.`,
+          card: handHigherTrumps.length
+            ? handHigherTrumps[0]
+            : handLeftTrumps[0],
+          score: 9,
+        });
+      }
+    } // Suit has been trumped
+    else {
+      if (
+        game.trick.indexOf(trickTrumps[trickTrumps.length - 1]) ===
+          game.trick.length - 2 &&
+        game.trick.length === 3
+      ) {
+        thinkLog.push({
+          sentence: `A player throwed a trump, my partner wins, i'm the last to play, i've trumps, but i dont have to serve them, i put the non-master card with the best value (not implemented).`,
+          card: lowestValueCard,
+          score: 9,
+        });
+      } else {
+        if (handLeftTrumps.length === 1) {
+          thinkLog.push({
+            sentence: `A player throwed a trump, my partner does not win, I have only one trump, I play him.`,
+            card: handLeftTrumps[0],
+            score: 9,
+          });
+        } else if (handLeftTrumps.length) {
+          if (handHigherTrumps.length) {
+            thinkLog.push({
+              sentence: `A player throwed a trump, my partner does not win, I have a highter trump, I play him.`,
+              card: handHigherTrumps[0],
+              score: 9,
+            });
+          } else {
+            thinkLog.push({
+              sentence: `A player throwed a trump, my partner does not win, I have a lowest trump, I have to play him.`,
+              card: handLeftTrumps[0],
+              score: 9,
+            });
+          }
+        } else {
+          thinkLog.push({
+            sentence: `A player throwed a trump, my partner does not win, I have no trump, I'm playing a low value trump card.`,
+            card: lowestValueCard,
+            score: 9,
+          });
+        }
+      }
+    }
+  } else {
+    thinkLog.push({
+      sentence: `I can't play cards of the asked suit, I have no trump, I'm playing a low value card.`,
+      card: lowestValueCard,
+      score: 9,
+    });
+  }
+
+  return thinkLog;
+}
+
+export type PlayOption = {
+  card: CardItem;
+  score: number;
+  thinkLog: ThinkItem[];
+};
+
+function getPlayOptions(game: RunningGame, hand: Hand): PlayOption[] {
+  const thinkLog = getPlayThoughts(game, hand);
+
+  return game[hand].map((card) => {
+    const cardThinkLog = thinkLog.filter(
+      (thinkItem) => thinkItem.card === card || !thinkItem.card,
+    );
+
+    return {
+      card,
+      score: cardThinkLog.reduce(
+        (totalScore, { score = 0 }) => totalScore + score,
+        0,
+      ),
+      thinkLog: cardThinkLog,
+    };
+  }, {});
+}
+
+function computeHandScore(game: RunningGame, hand: Hand): number {
+  return game.endedTricks.reduce(
+    (total, trick, i) =>
+      total +
+      (trick.winner === hand
+        ? (i === NUM_TRICKS - 1 ? 10 : 0) +
+          trick.cards.reduce(
+            (cardTotal, card) =>
+              cardTotal +
+              (card.suit === game.trump
+                ? CARD_FACES_HASH[card.face].trumpValue
+                : CARD_FACES_HASH[card.face].suitValue),
+            0,
+          )
+        : 0),
+    0,
+  );
+}
+
+function nestCards(stack) {
+  const cards = [...stack];
+  const newStack = [];
+
+  while (cards.length) {
+    const cardIndex = Math.round(Math.random() * (cards.length - 1));
+
+    newStack.push(cards[cardIndex]);
+    cards.splice(cardIndex, 1);
+  }
+
+  return newStack;
+}

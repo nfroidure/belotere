@@ -1,0 +1,86 @@
+:root {
+  /* Colors */
+  /* See https://coolors.co/393d3f-fdfdff-ffcc00-358600-479117-2081c3-59a5d8-63c132-ff521b-ea2b1f */
+  --dark: #393d3f;
+  --grey: #8e989c;
+  --light: #fdfdff;
+  --lightBlur: #fdfdff66;
+
+  --primary: #358600;
+  --secondary: #2081c3;
+  --tertiary: #ffcc00;
+  --quaternary: #59a5d8;
+
+  --secondary: #479117;
+  --secondary: #a44200;
+
+  --success: #63c132;
+  --warning: #ff521b;
+  --danger: #ea2b1f;
+
+  /* Atomic values */
+  --column: 4rem;
+  --gutter: 1.5rem;
+  --block: calc(var(--column) * 3 + var(--gutter) * 2);
+  --vGrid: 0.375rem;
+  --vRythm: calc(4 * var(--vGrid));
+  --border: calc(var(--vGrid) / 3);
+  --borderRadius: calc(var(--vGrid));
+  --shadowX: calc(var(--vGrid) * 1);
+  --shadowY: calc(var(--vGrid) * 1);
+  --shadowBlur: calc(var(--vGrid) * 4);
+
+  /* RWD */
+  --rwdEpsilon: 0.00001rem;
+  --startS: 0rem;
+  --startM: calc(var(--menuWidth) + var(--block) * 2 + var(--gutter) * 3);
+  --startL: calc(var(--menuWidth) + var(--block) * 4 + var(--gutter) * 6);
+  --startXL: calc(var(--menuWidth) + var(--block) * 6 + var(--gutter) * 7);
+  --endS: calc(var(--startM) - var(--rwdEpsilon));
+  --endM: calc(var(--startL) - var(--rwdEpsilon));
+  --endL: calc(var(--startXL) - var(--rwdEpsilon));
+
+  /* Font sizes */
+  --smallFontSize: calc(2 * var(--vGrid));
+  --smallLineHeight: calc(2 * var(--vGrid));
+
+  --mediumFontSize: calc(3 * var(--vGrid));
+  --mediumLineHeight: calc(4 * var(--vGrid));
+
+  --bigFontSize: calc(4 * var(--vGrid));
+  --bigLineHeight: calc(6 * var(--vGrid));
+
+  --greatFontSize: calc(6 * var(--vGrid));
+  --greatLineHeight: calc(8 * var(--vGrid));
+
+  --giantFontSize: calc(8 * var(--vGrid));
+  --giantLineHeight: calc(8 * var(--vGrid));
+
+  /* Cards */
+  --cardSizeRatio: 0.691117533;
+  --smallCardHeight: calc(var(--vRythm) * 6);
+  --smallCardWidth: calc(var(--smallCardHeight) * var(--cardSizeRatio));
+  --cardHeight: calc(var(--vRythm) * 8);
+  --cardWidth: calc(var(--cardHeight) * var(--cardSizeRatio));
+}
+
+/* Global styles */
+body {
+  font-family: 'Montserrat', sans-serif;
+  font-size: var(--mediumFontSize);
+  line-height: var(--mediumLineHeight);
+}
+*,
+*:after,
+*:before {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+  line-height: var(--vRythm);
+  font-size: var(--mediumFontSize);
+}
+html,
+body,
+div#__next {
+  min-height: 100vh;
+}
