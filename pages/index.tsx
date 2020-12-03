@@ -403,13 +403,21 @@ export default function Home(): JSX.Element {
         ) : null}
       </main>
       <footer>
-        Made with love by{' '}
+        Fait avec amour par{' '}
         <a
           href="https://insertafter.com?utm_source=belote&utm_medium=footer&utm_campaign=pocs"
           target="_blank"
           rel="noopener noreferrer"
         >
           Nicolas Froidure
+        </a>{' '}
+        -{' '}
+        <a
+          href="https://github.com/nfroidure/belotere"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Code source
         </a>
       </footer>
       <style jsx>{`
@@ -490,13 +498,26 @@ export default function Home(): JSX.Element {
         }
         .popup.active {
           display: block;
-          left: calc(50% - calc(calc(var(--block) * 2 + var(--gutter)) / 2));
+          position: absolute;
+          margin-left: auto;
+          margin-right: auto;
+          left: 0;
+          right: 0;
+          text-align: center;
           top: calc(var(--vRythm) * 4);
+          max-width: calc(100vw - calc(var(--gutter) * 2));
         }
         .notice.active {
           display: block;
-          left: calc(50% - calc(calc(var(--block) * 2 + var(--gutter)) / 2));
+          display: block;
+          position: absolute;
+          margin-left: auto;
+          margin-right: auto;
+          left: 0;
+          right: 0;
+          text-align: center;
           bottom: var(--vRythm);
+          max-width: calc(100vw - calc(var(--gutter) * 2));
         }
         .popup.active h2 {
           line-height: calc(var(--vRythm) * 2);
@@ -530,6 +551,7 @@ export default function Home(): JSX.Element {
           border: 0;
           border-radius: var(--borderRadius);
           box-shadow: 1px 1px 1px #000;
+          max-width: 100%;
         }
         .popup.active input[type='submit'],
         .popup.active button {
@@ -544,6 +566,24 @@ export default function Home(): JSX.Element {
           text-shadow: 2px 2px 15px #ff3300, 1px 1px 0 #ff3300,
             -1px -1px 0 #ffff00;
           background: #ffdd00;
+          max-width: 100%;
+        }
+        @media screen and (max-width: 479px) {
+          header h1 {
+            font-size: var(--bigFontSize);
+            padding: 0 calc(var(--gutter) / 2);
+          }
+          header .metric {
+            padding: 0 calc(var(--gutter) / 2);
+            font-size: var(--smallFontSize);
+          }
+          header .metric span {
+            padding: 0 calc(var(--gutter) / 2);
+            font-size: calc(var(--smallFontSize) * 0.8);
+          }
+          footer {
+            padding: calc(var(--vRytm) / 2) calc(var(--gutter) / 2);
+          }
         }
       `}</style>
     </div>

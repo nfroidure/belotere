@@ -64,6 +64,13 @@
   --cardWidth: calc(var(--cardHeight) * var(--cardSizeRatio));
 }
 
+/* User defined CSS env var do not work yet, quick workaround in the meanwhile */
+@media screen and (max-width: 479px) {
+  :root {
+    --vGrid: calc(0.375rem * 0.75);
+  }
+}
+
 /* Global styles */
 body {
   font-family: 'Montserrat', sans-serif;

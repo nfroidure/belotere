@@ -5,7 +5,6 @@ import type { ComponentProps } from 'react';
 import type { CardItem } from './card';
 import type { Hand } from './trick';
 
-
 const Mat = ({
   trick,
   playerHand,
@@ -99,6 +98,12 @@ const Mat = ({
           grid-row: 2 / 4;
           grid-column: 3;
           margin: auto;
+        }
+        @media screen and (max-width: 479px) {
+          .root {
+            padding: calc(var(--vRythm) * 2) calc(var(--gutter) / 2)
+              var(--vRythm) calc(var(--gutter) / 2);
+          }
         }
       `}</style>
     </div>
