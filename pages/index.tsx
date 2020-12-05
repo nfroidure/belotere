@@ -104,8 +104,26 @@ export default function Home(): JSX.Element {
   return (
     <div className="root">
       <Head>
-        <title>{APP_NAME}</title>
+        <title></title>
         <link rel="icon" href="/favicon.ico" />
+        {/* Primary Meta Tags */ }
+        <title>{APP_NAME}: 5mn pour une belote en solo</title>
+        <meta name="title" content="BeloteRE: 5mn pour une belote en solo" />
+        <meta name="description" content="Jouez partout à la belote sans connexion et sans autre distraction que le plaisir de jouer." />
+
+        {/* Open Graph / Facebook */ }
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://metatags.io/" />
+        <meta property="og:title" content="BeloteRE: 5mn pour une belote en solo" />
+        <meta property="og:description" content="Jouez partout à la belote sans connexion et sans autre distraction que le plaisir de jouer." />
+        <meta property="og:image" content="/images/capture.png" />
+
+        {/* Twitter */ }
+        <meta property="twitter:card" content="summary_large_image" />
+        <meta property="twitter:url" content="https://metatags.io/" />
+        <meta property="twitter:title" content="BeloteRE: 5mn pour une belote en solo" />
+        <meta property="twitter:description" content="Jouez partout à la belote sans connexion et sans autre distraction que le plaisir de jouer." />
+        <meta property="twitter:image" content="/images/capture.png" />
       </Head>
       <header>
         <h1>{APP_NAME}</h1>
