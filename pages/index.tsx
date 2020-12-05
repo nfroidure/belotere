@@ -1786,7 +1786,7 @@ function cardPlayErrorMessage(
       game.trick.every(
         (anotherTrickCard) =>
           trickCard === anotherTrickCard ||
-          trickCard.suit !== game.trump ||
+          anotherTrickCard.suit !== game.trump ||
           CARD_FACES_HASH[trickCard.face].trumpRank >
             CARD_FACES_HASH[anotherTrickCard.face].trumpRank,
       ),
