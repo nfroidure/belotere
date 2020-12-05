@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import Head from 'next/head';
 import { useForm } from 'react-hook-form';
 import {
@@ -84,6 +84,7 @@ const otherPlayersName: Record<Exclude<Hand, 'playerHand'>, string> = {
 };
 
 export default function Home(): JSX.Element {
+  const nextTimeout = useRef(null);
   const [game, setGame] = useState<GameState>({
     type: 'init',
     playersName: {
@@ -249,8 +250,9 @@ export default function Home(): JSX.Element {
                     return {
                       ...game,
                       trick: game.trick.concat(card) as Trick,
-                      playerHand: game.playerHand.filter(
-                        (aCard) => aCard !== card,
+                      playerHand: sortCards(
+                        game.playerHand.filter((aCard) => aCard !== card),
+                        [game.trump],
                       ),
                     };
                   }
@@ -261,6 +263,7 @@ export default function Home(): JSX.Element {
           />
         ) : null}
         {game.type === 'bid1' &&
+        game.bids < 4 &&
         getRelativeHand(game.dealer, game.bids + 1) === 'playerHand' ? (
           <div className="popup active">
             <h2>1er tour</h2>
@@ -312,6 +315,7 @@ export default function Home(): JSX.Element {
         ) : null}
 
         {game.type === 'bid2' &&
+        game.bids < 4 &&
         getRelativeHand(game.dealer, game.bids + 1) === 'playerHand' ? (
           <div className="popup active">
             <h2>2nd tour</h2>
@@ -611,7 +615,11 @@ export default function Home(): JSX.Element {
 
   function waitNextStep(delay: number) {
     setWaitingNextStep(true);
-    setTimeout(() => {
+    if (nextTimeout.current) {
+      clearInterval(nextTimeout.current);
+    }
+    nextTimeout.current = setTimeout(() => {
+      nextTimeout.current = null;
       runNextStep();
     }, delay);
   }
@@ -655,8 +663,6 @@ export default function Home(): JSX.Element {
           }. Premier tour d'enchères !`,
         );
 
-        console.log({ dealer: game.dealer, card });
-
         return {
           ...game,
           type: 'bid1',
@@ -680,7 +686,10 @@ export default function Home(): JSX.Element {
       return {
         ...game,
         stack: [...game.stack],
-        [destinationHand]: sortCards([...game[destinationHand], card]),
+        [destinationHand]: sortCards(
+          [...game[destinationHand], card],
+          CARD_SUITS,
+        ),
       };
     }
     if (game.type === 'bid1') {
@@ -700,16 +709,15 @@ export default function Home(): JSX.Element {
       const cardReceiver = getRelativeHand(game.dealer, 1);
       const nextBidderIsHuman = 'playerHand' === nextBidder;
       if (nextBidderIsHuman) {
-        console.log(
-          nextBidder,
-          getHandScoring(
+        console.log(nextBidder, {
+          handScoring: getHandScoring(
             [
               ...game[nextBidder],
               ...(nextBidder === cardReceiver ? [game.card] : []),
             ],
             game.card.suit,
           ),
-        );
+        });
         setMessage(`${game.playersName[nextBidder]} parie !`);
         return game;
       }
@@ -727,15 +735,12 @@ export default function Home(): JSX.Element {
         0,
       );
 
-      console.log({ nextBidder, handScoring, riskLevel });
+      console.log(nextBidder, { handScoring, riskLevel });
 
       if (totalScore > BOT_SCORING_CEIL - riskLevel) {
         waitNextStep(AWARENESS_DELAY);
 
         setMessage(
-          `${game.playersName[nextBidder]} prend en ${game.card.suit} !`,
-        );
-        console.log(
           `${game.playersName[nextBidder]} prend en ${game.card.suit} !`,
         );
         return {
@@ -765,16 +770,15 @@ export default function Home(): JSX.Element {
       const cardReceiver = getRelativeHand(game.dealer, 1);
       const nextBidderIsHuman = 'playerHand' === nextBidder;
       if (nextBidderIsHuman) {
-        console.log(
-          nextBidder,
-          getHandScoring(
+        console.log(nextBidder, {
+          handScoring: getHandScoring(
             [
               ...game[nextBidder],
               ...(nextBidder === cardReceiver ? [game.card] : []),
             ],
             game.card.suit,
           ),
-        );
+        });
         setMessage(`${game.playersName[nextBidder]} parie !`);
         return game;
       }
@@ -807,14 +811,11 @@ export default function Home(): JSX.Element {
       });
       const riskLevel = Math.floor(Math.random() * 3);
 
-      console.log({ nextBidder, handScorings, riskLevel, bestHandScoring });
+      console.log(nextBidder, { handScorings, riskLevel, bestHandScoring });
 
       if (bestHandScoring.totalScore > BOT_SCORING_CEIL - riskLevel) {
         waitNextStep(AWARENESS_DELAY);
         setMessage(
-          `${game.playersName[nextBidder]} prend en ${bestHandScoring.suit} !`,
-        );
-        console.log(
           `${game.playersName[nextBidder]} prend en ${bestHandScoring.suit} !`,
         );
         return {
@@ -871,7 +872,10 @@ export default function Home(): JSX.Element {
         ...game,
         card: game.card,
         stack: [...game.stack],
-        [destinationHand]: sortCards([...game[destinationHand], card]),
+        [destinationHand]: sortCards(
+          [...game[destinationHand], card],
+          CARD_SUITS,
+        ),
       };
     }
     if (game.type === 'running') {
@@ -947,24 +951,8 @@ export default function Home(): JSX.Element {
         return newGame;
       }
 
-      const highestCard = game.trick.find((card) => {
-        return game.trick.every(
-          (aCard: CardItem) =>
-            card === aCard ||
-            (card.suit === game.trump && card.suit !== aCard.suit) ||
-            (card.suit === game.trump &&
-              CARD_FACES_HASH[card.face].trumpRank >
-                CARD_FACES_HASH[aCard.face].trumpRank) ||
-            (card.suit !== game.trump &&
-              aCard.suit !== game.trump &&
-              card.suit === game.trick[0].suit &&
-              (card.suit !== aCard.suit ||
-                CARD_FACES_HASH[card.face].suitRank >
-                  CARD_FACES_HASH[aCard.face].suitRank)),
-        );
-      });
-      console.log({ highestCard });
       if (game.trick.length === NUM_PLAYERS) {
+        const highestCard = getHighestTrickCard(game.trick, game.trump);
         const winner = getRelativeHand(
           game.leader,
           game.trick.indexOf(highestCard),
@@ -973,7 +961,6 @@ export default function Home(): JSX.Element {
         waitNextStep(AWARENESS_DELAY);
 
         setMessage(`${game.playersName[winner]} remporte le pli !`);
-        console.log(`${winner} remporte le pli !`, game.trick);
 
         return {
           ...game,
@@ -987,11 +974,6 @@ export default function Home(): JSX.Element {
       }
 
       const playingHand = getRelativeHand(game.leader, game.trick.length);
-
-      if (playingHand === 'playerHand') {
-        return game;
-      }
-
       const playOptions = getPlayOptions(game, playingHand);
       const bestPlayOption = playOptions
         .filter(
@@ -1012,6 +994,7 @@ export default function Home(): JSX.Element {
         );
       if (!card) {
         console.error(
+          playingHand,
           game[playingHand].map((handCard) =>
             cardPlayErrorMessage(game, playingHand, handCard),
           ),
@@ -1019,12 +1002,15 @@ export default function Home(): JSX.Element {
       }
       const errorMessage = cardPlayErrorMessage(game, playingHand, card);
 
-      console.log(playingHand, playOptions, card, bestPlayOption);
+      console.log(playingHand, { playOptions, card, bestPlayOption });
       if (errorMessage) {
-        console.error(errorMessage, playOptions);
+        console.error(playingHand, errorMessage);
       }
       if (!bestPlayOption?.card) {
-        console.error('No play option:', playOptions);
+        console.error(playingHand, 'No play option.');
+      }
+      if (playingHand === 'playerHand') {
+        return game;
       }
 
       waitNextStep(game.trick.length == 3 ? AWARENESS_DELAY : BOT_DELAY);
@@ -1122,42 +1108,15 @@ export default function Home(): JSX.Element {
   }
 }
 
-function sortCards(
-  cards: CardItem[],
-  trumps: readonly CardSuit[] = [],
-): CardItem[] {
-  const suits = cards
-    .reduce((allSuits, card) => {
+function sortCards(cards: CardItem[], trumps: readonly CardSuit[]): CardItem[] {
+  const sortedSuits = sortSuits(
+    cards.reduce((allSuits, card) => {
       if (allSuits.includes(card.suit)) {
         return allSuits;
       }
       return allSuits.concat(card.suit);
-    }, [])
-    .sort();
-  const sortedSuits = [];
-
-  while (suits.length) {
-    if (sortedSuits.length === 0) {
-      sortedSuits.push(suits.pop());
-    }
-    let selectedSuit: CardSuit;
-
-    for (const candidateSuit of suits) {
-      if (
-        CARD_SUITS_HASH[candidateSuit].color !==
-        CARD_SUITS_HASH[sortedSuits[sortedSuits.length - 1]].color
-      ) {
-        selectedSuit = candidateSuit;
-        break;
-      }
-    }
-    if (selectedSuit) {
-      suits.splice(suits.indexOf(selectedSuit), 1);
-      sortedSuits.push(selectedSuit);
-      continue;
-    }
-    sortedSuits.unshift(suits.pop());
-  }
+    }, []),
+  );
 
   return cards.sort(cardSorter);
 
@@ -1256,7 +1215,7 @@ function getPlayThoughts(game: RunningGame, hand: Hand): ThinkItem[] {
     ? handLeftTrumps.filter(
         (card) =>
           CARD_FACES_HASH[card.face].trumpRank <
-          CARD_FACES_HASH[trickTrumps[0].face].trumpRank,
+          CARD_FACES_HASH[trickTrumps[trickTrumps.length - 1].face].trumpRank,
       )
     : [];
   const handHigherTrumps = trickHasTrump
@@ -1315,7 +1274,6 @@ function getPlayThoughts(game: RunningGame, hand: Hand): ThinkItem[] {
           : true;
 
         if (cardIsHighestTrump) {
-          console.log({ otherHandsLeft });
           thinkLog.push({
             sentence: 'The card is the highest trump.',
             card,
@@ -1465,6 +1423,7 @@ function getPlayThoughts(game: RunningGame, hand: Hand): ThinkItem[] {
             game[hand].filter(
               (aCard) => aCard !== card && aCard.suit === card.suit,
             ),
+            [game.trump],
           ).pop();
           const othersSecondHighest =
             otherHandsLeft[card.suit].length >= 2
@@ -1550,6 +1509,8 @@ function getPlayThoughts(game: RunningGame, hand: Hand): ThinkItem[] {
         card: handLowerTrumps[0],
         score: 9,
       });
+
+      return thinkLog;
     }
     thinkLog.push({
       sentence: `I've no trumps`,
@@ -1812,6 +1773,7 @@ function cardPlayErrorMessage(
   if (game.trick.length === 0) {
     return '';
   }
+
   if (game.trick[0].suit === game.trump) {
     if (card.suit !== game.trump) {
       if (game[hand].every((handCard) => handCard.suit !== game.trump)) {
@@ -1837,8 +1799,9 @@ function cardPlayErrorMessage(
         .filter((handCard) => handCard.suit === game.trump)
         .every(
           (handCard) =>
+            handCard === card ||
             CARD_FACES_HASH[handCard.face].trumpRank <
-            CARD_FACES_HASH[trickHighestTrump.face].trumpRank,
+              CARD_FACES_HASH[trickHighestTrump.face].trumpRank,
         )
     ) {
       return '';
@@ -1884,6 +1847,16 @@ function cardPlayErrorMessage(
         }
         return 'Il faut toujours monter en atout sur une coupe';
       }
+      const highestTrickCard = getHighestTrickCard(game.trick, game.trump);
+      const partnerHand = getPartnerHand(hand);
+
+      if (
+        partnerHand ===
+        getRelativeHand(game.leader, game.trick.indexOf(highestTrickCard))
+      ) {
+        return '';
+      }
+
       return "Il est obligatoire de couper tant qu'on a de l'atout";
     }
     if (card.suit === game.trump) {
@@ -1893,4 +1866,57 @@ function cardPlayErrorMessage(
   }
 
   return '';
+}
+
+function getHighestTrickCard(cards: CardItem[], trump: CardSuit): CardItem {
+  return cards.find((card) => {
+    return cards.every(
+      (aCard: CardItem) =>
+        card === aCard ||
+        (card.suit === trump && card.suit !== aCard.suit) ||
+        (card.suit === trump &&
+          CARD_FACES_HASH[card.face].trumpRank >
+            CARD_FACES_HASH[aCard.face].trumpRank) ||
+        (card.suit !== trump &&
+          aCard.suit !== trump &&
+          card.suit === cards[0].suit &&
+          (card.suit !== aCard.suit ||
+            CARD_FACES_HASH[card.face].suitRank >
+              CARD_FACES_HASH[aCard.face].suitRank)),
+    );
+  });
+}
+
+function sortSuits(suits: CardSuit[]): CardSuit[] {
+  const sortedSuits = [];
+
+  // Ensure reproductible sorting
+  suits = suits.sort((suitA, suitB) =>
+    CARD_SUITS.indexOf(suitA) < CARD_SUITS.indexOf(suitB) ? -1 : 1,
+  );
+
+  while (suits.length) {
+    if (sortedSuits.length === 0) {
+      sortedSuits.push(suits.pop());
+      continue;
+    }
+    let selectedSuit: CardSuit;
+
+    for (const candidateSuit of suits) {
+      if (
+        CARD_SUITS_HASH[candidateSuit].color !==
+        CARD_SUITS_HASH[sortedSuits[sortedSuits.length - 1]].color
+      ) {
+        selectedSuit = candidateSuit;
+        break;
+      }
+    }
+    if (selectedSuit) {
+      suits.splice(suits.indexOf(selectedSuit), 1);
+      sortedSuits.push(selectedSuit);
+      continue;
+    }
+    sortedSuits.unshift(suits.pop());
+  }
+  return sortedSuits;
 }
