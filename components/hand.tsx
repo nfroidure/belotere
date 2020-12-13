@@ -28,7 +28,7 @@ const Hand = ({
             <Card
               suit={card.suit}
               face={card.face}
-              hidden={!!hidden}
+              hidden={hidden}
               size={size}
               onClick={onCardSelect ? () => onCardSelect(card) : undefined}
             />

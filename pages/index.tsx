@@ -18,7 +18,7 @@ import type { CardItem, CardSuit } from '../components/card';
 import type { Trick, Hand } from '../components/trick';
 
 const APP_NAME = 'BeloteRE';
-const BOT_SCORING_CEIL = 8;
+const BOT_SCORING_CEIL = 7;
 const DEAL_DELAY = 200;
 const BOT_DELAY = 1000;
 const AWARENESS_DELAY = 2000;
@@ -106,23 +106,38 @@ export default function Home(): JSX.Element {
       <Head>
         <title></title>
         <link rel="icon" href="/favicon.ico" />
-        {/* Primary Meta Tags */ }
+        {/* Primary Meta Tags */}
         <title>{APP_NAME}: 5mn pour une belote en solo</title>
         <meta name="title" content="BeloteRE: 5mn pour une belote en solo" />
-        <meta name="description" content="Jouez partout à la belote sans connexion et sans autre distraction que le plaisir de jouer." />
+        <meta
+          name="description"
+          content="Jouez partout à la belote sans connexion et sans autre distraction que le plaisir de jouer."
+        />
 
-        {/* Open Graph / Facebook */ }
+        {/* Open Graph / Facebook */}
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://metatags.io/" />
-        <meta property="og:title" content="BeloteRE: 5mn pour une belote en solo" />
-        <meta property="og:description" content="Jouez partout à la belote sans connexion et sans autre distraction que le plaisir de jouer." />
+        <meta
+          property="og:title"
+          content="BeloteRE: 5mn pour une belote en solo"
+        />
+        <meta
+          property="og:description"
+          content="Jouez partout à la belote sans connexion et sans autre distraction que le plaisir de jouer."
+        />
         <meta property="og:image" content="/images/capture.png" />
 
-        {/* Twitter */ }
+        {/* Twitter */}
         <meta property="twitter:card" content="summary_large_image" />
         <meta property="twitter:url" content="https://metatags.io/" />
-        <meta property="twitter:title" content="BeloteRE: 5mn pour une belote en solo" />
-        <meta property="twitter:description" content="Jouez partout à la belote sans connexion et sans autre distraction que le plaisir de jouer." />
+        <meta
+          property="twitter:title"
+          content="BeloteRE: 5mn pour une belote en solo"
+        />
+        <meta
+          property="twitter:description"
+          content="Jouez partout à la belote sans connexion et sans autre distraction que le plaisir de jouer."
+        />
         <meta property="twitter:image" content="/images/capture.png" />
       </Head>
       <header>
@@ -1273,17 +1288,7 @@ function getPlayThoughts(game: RunningGame, hand: Hand): ThinkItem[] {
           continue;
         }
 
-        if (partnerHand === game.taker && card.face === 'J') {
-          thinkLog.push({
-            sentence:
-              "The card is the highest possible trump, I'm in the taker team",
-            card,
-            score: 9,
-          });
-          continue;
-        }
-
-        const cardIsHighestTrump = otherHandsLeft[game.trump].length
+        const cardIsHigherThanOthersTrumps = otherHandsLeft[game.trump].length
           ? CARD_FACES_HASH[card.face].trumpRank >
             CARD_FACES_HASH[
               otherHandsLeft[game.trump][otherHandsLeft[game.trump].length - 1]
@@ -1291,65 +1296,99 @@ function getPlayThoughts(game: RunningGame, hand: Hand): ThinkItem[] {
             ].trumpRank
           : true;
 
-        if (cardIsHighestTrump) {
+        if (cardIsHigherThanOthersTrumps) {
           thinkLog.push({
-            sentence: 'The card is the highest trump.',
+            sentence: 'The card is higher than others trumps.',
             card,
-            score: 1,
+            score: 5,
           });
 
           if (
-            getPartnerHand(hand) === game.taker &&
+            (partnerHand === game.taker || game.taker === hand) &&
             allHandsLeft[game.trump].length >= 6
           ) {
             thinkLog.push({
               sentence:
                 "I'm in the taker team and there is a lot of trumps left in the game.",
               card,
-              score: 8,
+              score: 3,
             });
-          } else if (
-            allHandsLeft[game.trump].length / 3 <
-            handLeftTrumps.length
-          ) {
+          }
+
+          if (allHandsLeft[game.trump].length / 2 < handLeftTrumps.length) {
             thinkLog.push({
               sentence:
                 'I probably have enought trumps to be the last to have some.',
               card,
-              score: 8,
+              score: 2,
             });
           }
+          continue;
+        }
 
-          if (
-            getPartnerHand(hand) === game.taker &&
-            CARD_FACES_HASH[card.face].trumpRank === 0 &&
-            allHandsLeft[game.trump].length >= 6
-          ) {
+        const haveTheNextHigherTrump =
+          allHandsLeft[game.trump].length > 2 &&
+          game[hand].includes(
+            allHandsLeft[game.trump][allHandsLeft[game.trump].length - 2],
+          );
+
+        if (partnerHand === game.taker) {
+          thinkLog.push({
+            sentence: "I'm in the taker team.",
+            card,
+            score: 0,
+          });
+
+          if (haveTheNextHigherTrump) {
             thinkLog.push({
-              sentence:
-                "The card is a null trump, I'm in the taker team, there are lot of trumps left.",
+              sentence: 'I have the next higher trump.',
               card,
               score: 2,
             });
-          } else if (CARD_FACES_HASH[card.face].trumpRank === 0) {
+          }
+
+          if (CARD_FACES_HASH[card.face].trumpRank === 0) {
             thinkLog.push({
-              sentence:
-                'The card is a null trump, I can try to know what my partner want me to play.',
+              sentence: 'The card is a null trump.',
               card,
-              score: 1,
+              score: 2,
             });
           } else if (CARD_FACES_HASH[card.face].trumpRank <= 3) {
             thinkLog.push({
-              sentence:
-                "I've a low trump, I can try to know what my partner want me to play.",
+              sentence: 'The card is a low trump.',
               card,
-              score: 0,
+              score: 1,
             });
           }
+
+          if (allHandsLeft[game.trump].length >= 6) {
+            thinkLog.push({
+              sentence: 'There are lot of trumps left.',
+              card,
+              score: 4,
+            });
+          }
+          continue;
         }
+
+        if (haveTheNextHigherTrump) {
+          thinkLog.push({
+            sentence: 'I have the next higher trump.',
+            card,
+            score: 1,
+          });
+        }
+
+        if (CARD_FACES_HASH[card.face].trumpRank <= 3) {
+          thinkLog.push({
+            sentence:
+              "I've a low trump, I can try to know what my partner want me to play.",
+            card,
+            score: 1,
+          });
+        }
+        continue;
       } else {
-        // voir aussi faire couper adversaire en memorisant qui coupe
-        // Si j'ai le prochain atout maitre et que j'ai assez d'atout pour éliminer les autres, je joue l'atout.
         thinkLog.push({
           sentence: 'The card is not a trump.',
           card,
@@ -1374,13 +1413,13 @@ function getPlayThoughts(game: RunningGame, hand: Hand): ThinkItem[] {
           thinkLog.push({
             sentence: 'The card is the highest left of his suit.',
             card,
-            score: 3,
+            score: 5,
           });
           if (otherHandsLeft[game.trump].length === 0) {
             thinkLog.push({
               sentence: 'There are no more trumps.',
               card,
-              score: 5,
+              score: 4,
             });
           } else {
             if (otherHandsLeft[game.trump].length < 3) {
@@ -1844,6 +1883,7 @@ function cardPlayErrorMessage(
         ) {
           return '';
         }
+
         const trickHighestTrump = game.trick.find((trickCard) =>
           game.trick.every(
             (anotherTrickCard) =>
@@ -1852,7 +1892,9 @@ function cardPlayErrorMessage(
                 CARD_FACES_HASH[anotherTrickCard.face].trumpRank,
           ),
         );
+
         if (
+          !trickHighestTrump ||
           game[hand]
             .filter((handCard) => handCard.suit === game.trump)
             .every(
