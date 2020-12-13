@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "export": "next export && touch out/.nojekyll && echo 'belote.insertafter.com' > out/CNAME && rm out/CNAME",
+    "export": "next export && touch out/.nojekyll && echo 'belote.insertafter.com' > out/CNAME",
     "deploy": "push-dir --dir=out --branch=gh-pages --cleanup",
     "type-check": "tsc --pretty --noEmit",
     "format": "prettier --write **/*.{ts,tsx}",
